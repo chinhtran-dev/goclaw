@@ -16,7 +16,7 @@ func defaultCursorCLIWorkDir() string {
 }
 
 // ensureWorkDir creates and returns a stable work directory for the given session key.
-func (p *CursorCLIProvider) ensureWorkDir(sessionKey string) string {
+func (p *CursorCLIProvider) ensureWorkDir(sessionKey string) (string, error) {
 	safe := sanitizePathSegment(sessionKey)
 	dir := filepath.Join(p.baseWorkDir, safe)
 
@@ -24,10 +24,9 @@ func (p *CursorCLIProvider) ensureWorkDir(sessionKey string) string {
 	defer p.mu.Unlock()
 
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		slog.Warn("cursor-cli: failed to create workdir", "dir", dir, "error", err)
-		return os.TempDir()
+		return "", err
 	}
-	return dir
+	return dir, nil
 }
 
 // writeAgentsMD writes the system prompt to AGENTS.md in the work directory.
@@ -129,6 +128,9 @@ func filterCursorEnv(environ []string) []string {
 // ResetCursorCLISession deletes session state for a given session key.
 // Called on /reset to ensure the agent starts fresh.
 func ResetCursorCLISession(baseWorkDir, sessionKey string) {
+	unlock := lockCursorSession(sessionKey)
+	defer unlock()
+
 	if baseWorkDir == "" {
 		baseWorkDir = defaultCursorCLIWorkDir()
 	}

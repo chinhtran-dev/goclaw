@@ -1,6 +1,9 @@
 package providers
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
 // CursorCLIProvider implements Provider by shelling out to the Cursor `agent` binary.
 // Authentication is via browser login (`agent login` on the server); credentials are not passed through GoClaw.
@@ -12,7 +15,6 @@ type CursorCLIProvider struct {
 	permMode      string         // see WithCursorCLIPermMode / buildArgs
 	mcpConfigData *MCPConfigData // per-session MCP config data
 	mu            sync.Mutex     // protects workdir creation
-	sessionMu     sync.Map       // key: string, value: *sync.Mutex — per-session lock
 }
 
 // CursorCLIOption configures the provider.
@@ -63,7 +65,6 @@ func NewCursorCLIProvider(cliPath string, opts ...CursorCLIOption) *CursorCLIPro
 		defaultModel: "composer-2",
 		baseWorkDir:  defaultCursorCLIWorkDir(),
 		permMode:     "force",
-		// sessionMu is zero-value ready (sync.Map)
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -77,10 +78,24 @@ func (p *CursorCLIProvider) DefaultModel() string { return p.defaultModel }
 // Close is a no-op — Cursor workspaces persist for session continuity.
 func (p *CursorCLIProvider) Close() error { return nil }
 
-// lockSession acquires a per-session mutex to prevent concurrent CLI calls on the same session.
-func (p *CursorCLIProvider) lockSession(sessionKey string) func() {
-	actual, _ := p.sessionMu.LoadOrStore(sessionKey, &sync.Mutex{})
+var cursorSessionLocks sync.Map // key: string, value: *sync.Mutex
+
+func normalizeCursorSessionLockKey(sessionKey string) string {
+	if strings.TrimSpace(sessionKey) == "" {
+		return "default"
+	}
+	return sessionKey
+}
+
+func lockCursorSession(sessionKey string) func() {
+	key := normalizeCursorSessionLockKey(sessionKey)
+	actual, _ := cursorSessionLocks.LoadOrStore(key, &sync.Mutex{})
 	m := actual.(*sync.Mutex)
 	m.Lock()
 	return m.Unlock
+}
+
+// lockSession acquires a per-session mutex to prevent concurrent CLI calls on the same session.
+func (p *CursorCLIProvider) lockSession(sessionKey string) func() {
+	return lockCursorSession(sessionKey)
 }

@@ -26,7 +26,10 @@ func (p *CursorCLIProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRes
 	unlock := p.lockSession(sessionKey)
 	defer unlock()
 
-	workDir := p.ensureWorkDir(sessionKey)
+	workDir, err := p.ensureWorkDir(sessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("cursor-cli: create workdir: %w", err)
+	}
 	if systemPrompt != "" {
 		p.writeAgentsMD(workDir, systemPrompt)
 	}
@@ -79,7 +82,10 @@ func (p *CursorCLIProvider) ChatStream(ctx context.Context, req ChatRequest, onC
 		slog.Debug("cursor-cli: session lock released", "session_key", sessionKey)
 	}()
 
-	workDir := p.ensureWorkDir(sessionKey)
+	workDir, err := p.ensureWorkDir(sessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("cursor-cli: create workdir: %w", err)
+	}
 	if systemPrompt != "" {
 		p.writeAgentsMD(workDir, systemPrompt)
 	}
@@ -187,10 +193,6 @@ func (p *CursorCLIProvider) ChatStream(ctx context.Context, req ChatRequest, onC
 	if err := cmd.Wait(); err != nil {
 		if debugFile != nil {
 			fmt.Fprintf(debugFile, "\n=== STDERR:\n%s\n=== EXIT ERROR: %v\n", stderrBuf.String(), err)
-		}
-		// If we got partial content, return it with the error
-		if finalResp.Content != "" {
-			return &finalResp, nil
 		}
 		return nil, fmt.Errorf("cursor-cli: %w (stderr: %s)", err, stderrBuf.String())
 	}
